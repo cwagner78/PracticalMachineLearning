@@ -1,0 +1,106 @@
+---
+title: "Machine Learning Assignment"
+author: "Christian Wagner"
+date: "Thursday, August 20, 2015"
+output: html_document
+---
+
+In this assignment we use data from accelerometers attached to different body parts to build a ML model that predicts the manner a certain excercise (barbell lift) was performed.
+For more information see the website of the group that originally collected and analyzed the data: http://groupware.les.inf.puc-rio.br/har
+
+We use the caret package for this assignment.
+```{r , warning=FALSE}
+library(caret)
+library(randomForest)
+```
+
+Loading and Cleaning the Data
+-----------------------------
+
+We start by loading the data and converting empty entries and #DIV/0! to NAs.
+
+```{r cache=TRUE}
+dat<-read.csv("pml-training.csv",na.strings=c("NA","","#DIV/0!"))
+str(dat)
+```
+
+As we see, the data set contains a few bookkeeping variables that we should not use for the prediction. There are also many measurement variables with (almost) all values being NAs.
+
+First, we remove the bookkeeping variables,
+```{r}
+dat<-dat[,-(1:7)]
+```
+
+Next we count the number of NAs per variable
+```{r}
+sumOfNA <- apply(dat, 2, function(x) {sum(is.na(x))})
+print(sumOfNA)
+```
+From the above numbers, it's clear that either variables have no NAs at all or almost all entries are NAs. We therefore keep only variables with less than 90% NAs (for this data set, this results in removing all NAs):
+```{r}
+dat_reduced <- dat[,which(sumOfNA<0.9*dim(dat)[1])]
+```
+This reduced the data set to 52 features and the outcome ("classe"):
+```{r}
+dim(dat_reduced)
+```
+
+Training the models
+-------------------
+
+For later validation of the model, we split the data into a training set and a validation set:
+
+```{r}
+set.seed(20815)
+inTrain <- createDataPartition(dat_reduced$classe, p=0.7, list=F)
+training <- dat_reduced[inTrain,]
+validation <- dat_reduced[-inTrain,]
+```
+
+Now, let's start with a simple and fast model, we choose the quadratic discriminant analysis (QDA) method using k-fold cross validation:
+```{r cache=TRUE, warning=FALSE}
+ctrl <- trainControl(method="cv", number=5)
+model_qda<-train(classe ~ ., data=training, method="qda", trControl=ctrl)
+model_qda
+```
+The estimated accuracy of 89% is not bad, but we can probably improve the prediction accuracy by a more complex model like a Random Forest model with k-fold cross validation:
+```{r cache=TRUE, warning=FALSE}
+ctrl <- trainControl(method="cv", number=5)
+model_rf<-train(classe ~ ., data=training, method="rf", trControl=ctrl)
+model_rf
+```
+
+Now the estimated accuracy is almost 100%. 
+
+```{r}
+model_rf$finalModel
+```
+The Out-of-Bag error rate is below 1%.
+
+The most important variables are
+```{r  fig.widgth=10, fig.height=10, warning=FALSE}
+varImpPlot(model_rf$finalModel, main="Importance of Variables")
+```
+
+
+Out-of-sample error
+-------------
+In order to confirm the estimated accuracy, we apply the model to the validation data set and look at the confusion matrix.
+```{r warning=FALSE}
+pred_rf<-predict(model_rf,validation)
+confusionMatrix(pred_rf,validation$classe)
+```
+Indeed, the out-of-sample accuracy is over 99% and, hence, the out-of-sample error is below 1%. 
+
+
+Testing Sample Predictions
+---
+```{r}
+testing<-read.csv("pml-testing.csv",na.strings=c("NA","","#DIV/0!"))
+predict(model_rf,testing)
+```
+
+Conclusion
+-----
+The Random Forest model is highly accurate at predicting the 5 different types of movement. 
+
